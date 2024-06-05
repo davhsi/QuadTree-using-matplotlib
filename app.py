@@ -3,93 +3,65 @@ from matplotlib.patches import Rectangle
 
 class Point:
     def __init__(self, x, y):
-        self.x = x
-        self.y = y
+        self.x, self.y = x, y
 
 class City:
     def __init__(self, name, point):
-        self.name = name
-        self.point = point
+        self.name, self.point = name, point
 
 class Node:
     def __init__(self, boundary):
-        self.boundary = boundary  # boundary is a tuple (x_min, y_min, x_max, y_max)
+        self.boundary = boundary
         self.cities = []
-        self.NW = None  # Northwest quadrant
-        self.NE = None  # Northeast quadrant
-        self.SW = None  # Southwest quadrant
-        self.SE = None  # Southeast quadrant
+        self.NW = self.NE = self.SW = self.SE = None
 
 class Quadtree:
     def __init__(self, boundary, capacity=1):
         self.root = Node(boundary)
         self.capacity = capacity
-        self.found_city = None  # Store the found city for visualization
+        self.found_city = None
 
     def insert(self, city):
-        return self._insert(self.root, city)
+        self._insert(self.root, city)
 
     def _insert(self, node, city):
         if not self._in_boundary(node.boundary, city.point):
-            return False
-
-        if len(node.cities) < self.capacity and node.NW is None:
+            return
+        if len(node.cities) < self.capacity and not node.NW:
             node.cities.append(city)
-            return True
-
-        if node.NW is None:
-            self._subdivide(node)
-
-        if self._insert(node.NW, city): return True
-        if self._insert(node.NE, city): return True
-        if self._insert(node.SW, city): return True
-        if self._insert(node.SE, city): return True
-
-        return False
+        else:
+            if not node.NW: self._subdivide(node)
+            for child in [node.NW, node.NE, node.SW, node.SE]:
+                self._insert(child, city)
 
     def _subdivide(self, node):
         x_min, y_min, x_max, y_max = node.boundary
-        x_mid = (x_min + x_max) / 2
-        y_mid = (y_min + y_max) / 2
-
-        node.NW = Node((x_min, y_mid, x_mid, y_max))
-        node.NE = Node((x_mid, y_mid, x_max, y_max))
-        node.SW = Node((x_min, y_min, x_mid, y_mid))
-        node.SE = Node((x_mid, y_min, x_max, y_mid))
-
-        while node.cities:
-            existing_city = node.cities.pop()
-            self._insert(node, existing_city)
+        x_mid, y_mid = (x_min + x_max) / 2, (y_min + y_max) / 2
+        node.NW, node.NE = Node((x_min, y_mid, x_mid, y_max)), Node((x_mid, y_mid, x_max, y_max))
+        node.SW, node.SE = Node((x_min, y_min, x_mid, y_mid)), Node((x_mid, y_min, x_max, y_mid))
+        for city in node.cities:
+            self._insert(node, city)
+        node.cities.clear()
 
     def _in_boundary(self, boundary, point):
         x_min, y_min, x_max, y_max = boundary
         return x_min <= point.x < x_max and y_min <= point.y < y_max
 
     def find(self, point):
-        self.found_city = None  # Reset the found city
+        self.found_city = None
         return self._find(self.root, point)
 
     def _find(self, node, point):
         if not self._in_boundary(node.boundary, point):
             return None
-
         for city in node.cities:
             if city.point.x == point.x and city.point.y == point.y:
-                self.found_city = city  # Store the found city
+                self.found_city = city
                 return city
-
-        if node.NW is None:
-            return None
-
-        if self._in_boundary(node.NW.boundary, point):
-            return self._find(node.NW, point)
-        elif self._in_boundary(node.NE.boundary, point):
-            return self._find(node.NE, point)
-        elif self._in_boundary(node.SW.boundary, point):
-            return self._find(node.SW, point)
-        elif self._in_boundary(node.SE.boundary, point):
-            return self._find(node.SE, point)
-
+        if node.NW:
+            for child in [node.NW, node.NE, node.SW, node.SE]:
+                if self._in_boundary(child.boundary, point):
+                    return self._find(child, point)
         return None
 
     def draw(self):
@@ -103,47 +75,24 @@ class Quadtree:
 
     def _draw_node(self, node, ax):
         x_min, y_min, x_max, y_max = node.boundary
-        rect = Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, fill=None, edgecolor='black')
-        ax.add_patch(rect)
-        
+        ax.add_patch(Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, fill=None, edgecolor='black'))
         for city in node.cities:
-            color = 'ro'
-            if self.found_city and city.name == self.found_city.name:
-                color = 'go'
-            ax.plot(city.point.x, city.point.y, color)
+            ax.plot(city.point.x, city.point.y, 'go' if self.found_city and city.name == self.found_city.name else 'ro')
             ax.text(city.point.x, city.point.y, f' {city.name}', verticalalignment='bottom', horizontalalignment='right')
-        
-        if node.NW is not None:
-            self._draw_node(node.NW, ax)
-            self._draw_node(node.NE, ax)
-            self._draw_node(node.SW, ax)
-            self._draw_node(node.SE, ax)
+        if node.NW:
+            for child in [node.NW, node.NE, node.SW, node.SE]:
+                self._draw_node(child, ax)
 
 def main():
-    boundary = (0, 0, 100, 100)  # Define the boundary of the quadtree
-    quadtree = Quadtree(boundary)
-
-    num_cities = int(input("Enter the number of cities: "))
-
-    for _ in range(num_cities):
-        name = input("Enter the name of the city: ")
-        x = float(input(f"Enter the x coordinate of {name}: "))
-        y = float(input(f"Enter the y coordinate of {name}: "))
-        quadtree.insert(City(name, Point(x, y)))
-
-    while True:
-        x = float(input("Enter the x coordinate of the city to find: "))
-        y = float(input("Enter the y coordinate of the city to find: "))
+    quadtree = Quadtree((0, 0, 100, 100))
+    for _ in range(int(input("Number of cities: "))):
+        name, x, y = input("City name, x, y: ").split(',')
+        quadtree.insert(City(name.strip(), Point(float(x), float(y))))
+    while input("Find city? (yes/no): ").strip().lower() == 'yes':
+        coordinates = input("Enter x, y: ").replace(',', ' ').split()
+        x, y = map(float, coordinates)
         found_city = quadtree.find(Point(x, y))
-        if found_city:
-            print(f"Found city: {found_city.name}")
-        else:
-            print("City not found")
-
-        cont = input("Do you want to search for another city? (yes/no): ").strip().lower()
-        if cont != 'yes':
-            break
-    
+        print(f"Found city: {found_city.name}" if found_city else "City not found")
     quadtree.draw()
 
 if __name__ == "__main__":
